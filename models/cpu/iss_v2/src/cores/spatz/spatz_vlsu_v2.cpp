@@ -273,6 +273,10 @@ void VuLsu::handle_access(iss_insn_t *insn, bool is_write, int reg, bool do_stri
     this->reg_indexed = reg_indexed;
     this->pending_elem = 0;
 
+    VuLsuPendingInsn &slot = this->insns[this->insn_first_waiting];
+    slot.commit_next = this->vstart;
+    slot.commit_pending.clear();
+
     // Masked access: v0 selects which elements take part. On RTL this never
     // changes the request stream -- spatz_vlsu.sv issues a request for every
     // element position and applies v0 as a byte strobe on stores
@@ -456,7 +460,20 @@ void VuLsu::burst_done(vp::IoReq *req)
                 entry.vrf_dest = nullptr;
             }
 
-            this->vu.insn_commit(pending_insn, entry.size);
+            // Requests retire in order per port only: across ports, a word can
+            // land while an earlier one is still waiting on a stalled port,
+            // the more likely the more ports. A chained consumer reads the
+            // destination register as a prefix of nb_bytes_done, so only the
+            // contiguous prefix is committed, and a request landing beyond a
+            // hole waits for it.
+            slot.commit_pending[first_elem] = entry.size;
+            for (auto it = slot.commit_pending.begin();
+                it != slot.commit_pending.end() && it->first == slot.commit_next;
+                it = slot.commit_pending.erase(it))
+            {
+                this->vu.insn_commit(pending_insn, it->second);
+                slot.commit_next += it->second / entry.elem_size;
+            }
             this->vu.exec_insn_chunk(insn, pending_insn, first_elem, end_elem, nb_elem);
 
             entry.slot->nb_pending_bursts--;

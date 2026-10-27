@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <map>
 #include <queue>
 #include <cpu/iss_v2/include/types.hpp>
 #include <cpu/iss_v2/include/stats/insn_duration.hpp>
@@ -154,6 +155,13 @@ public:
     int nb_pending_bursts;
     // Used by some blocks to flag the termination
     bool done;
+    // VLSU only: the elements of the instruction are committed to the
+    // chaining gate (nb_bytes_done) in order, as a contiguous prefix of the
+    // destination register. commit_next is the first element not committed
+    // yet, and commit_pending holds the retired requests beyond it (first
+    // element -> bytes), waiting for the hole before them to fill.
+    int commit_next;
+    std::map<int, int> commit_pending;
 };
 
 #if defined(CONFIG_GVSOC_ISS_USE_SPATZ)
